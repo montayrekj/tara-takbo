@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 
 export type SimulationSpeed = 1 | 2 | 5 | 10 | 20;
 
-const BASE_SPEED_KMH = 100;
+const BASE_SPEED_KMH = 1000;
 
 export function useSimulation(totalDistanceMeters: number) {
   const [playing, setPlaying] = useState(false);

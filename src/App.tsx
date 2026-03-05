@@ -44,6 +44,8 @@ export default function App() {
   const mapRef = useRef<MapViewHandle>(null);
   const simulation = useSimulation(totalDistance);
   const pendingWaypointsRef = useRef<[number, number][] | null>(null);
+  const waypointsRef = useRef(waypoints);
+  useEffect(() => { waypointsRef.current = waypoints; }, [waypoints]);
 
   useEffect(() => {
     const hash = window.location.hash;
@@ -95,46 +97,37 @@ export default function App() {
       if (mode !== 'build') return;
       setError(null);
 
-      setWaypoints((prev) => {
-        if (prev.length === 0) return [coords];
-        return prev;
-      });
+      const current = waypointsRef.current;
 
-      setWaypoints((prev) => {
-        if (prev.length === 0) {
-          return [coords];
-        }
+      if (current.length === 0) {
+        setWaypoints([coords]);
+        return;
+      }
 
-        const from = prev[prev.length - 1];
+      const from = current[current.length - 1];
+      setWaypoints((prev) => [...prev, coords]);
 
-        setIsLoading(true);
-        fetchDirections(from, coords, token).then((result) => {
-          setIsLoading(false);
-          if (!result) {
-            setError(
-              'Could not find a route to that point. Try clicking closer to a road or path.',
-            );
-            return;
-          }
+      setIsLoading(true);
+      const result = await fetchDirections(from, coords, token);
+      setIsLoading(false);
 
-          const newSegment: RouteSegment = {
-            coordinates: result.coordinates,
-            distance: result.distance,
-          };
+      if (!result) {
+        setWaypoints((p) => p.slice(0, -1));
+        setError(
+          'Could not find a route to that point. Try clicking closer to a road or path.',
+        );
+        return;
+      }
 
-          setSegments((prevSegs) => {
-            const updated = [...prevSegs, newSegment];
-            const allCoords = updated.flatMap((s) => s.coordinates);
+      const newSegment: RouteSegment = {
+        coordinates: result.coordinates,
+        distance: result.distance,
+      };
 
-            fetchElevationData(allCoords, token).then(setElevationData);
-
-            return updated;
-          });
-
-          setWaypoints((prev2) => [...prev2, coords]);
-        });
-
-        return [...prev, coords];
+      setSegments((prevSegs) => {
+        const updated = [...prevSegs, newSegment];
+        fetchElevationData(updated.flatMap((s) => s.coordinates), token).then(setElevationData);
+        return updated;
       });
     },
     [mode, token],

@@ -4,12 +4,75 @@ import React, {
   forwardRef,
   useImperativeHandle,
 } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { MdUTurnLeft } from 'react-icons/md';
 import mapboxgl from 'mapbox-gl';
 import * as turf from '@turf/turf';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import type { AppMode } from '../types';
 
 const DEFAULT_CENTER: [number, number] = [123.8854, 10.3157];
+
+interface UTurnPoint {
+  coords: [number, number];
+}
+
+function computeUTurns(coords: [number, number][]): UTurnPoint[] {
+  if (coords.length < 6) return [];
+  const line = turf.lineString(coords);
+  const totalKm = turf.length(line, { units: 'kilometers' });
+  if (totalKm < 0.04) return [];
+
+  const STEP_KM = 0.025;
+  const WINDOW_KM = 0.04;
+  const UTURN_DEG = 140;
+  const MIN_GAP_KM = 0.05;
+
+  const turns: UTurnPoint[] = [];
+  const numSteps = Math.floor(totalKm / STEP_KM);
+  let lastDistKm = -MIN_GAP_KM;
+
+  for (let i = 1; i < numSteps - 1; i++) {
+    const d = i * STEP_KM;
+    if (d - lastDistKm < MIN_GAP_KM) continue;
+
+    const a = turf.along(line, Math.max(0, d - WINDOW_KM), {
+      units: 'kilometers',
+    });
+    const b = turf.along(line, d, { units: 'kilometers' });
+    const c = turf.along(line, Math.min(totalKm, d + WINDOW_KM), {
+      units: 'kilometers',
+    });
+
+    const diff = ((turf.bearing(b, c) - turf.bearing(a, b) + 540) % 360) - 180;
+    if (Math.abs(diff) >= UTURN_DEG) {
+      turns.push({ coords: b.geometry.coordinates as [number, number] });
+      lastDistKm = d;
+    }
+  }
+  return turns;
+}
+
+function createUTurnMarkerEl(): HTMLElement {
+  const el = document.createElement('div');
+  el.style.cssText = [
+    'background:#ffffff',
+    'border:2.5px solid #f97316',
+    'border-radius:50%',
+    'width:30px',
+    'height:30px',
+    'display:flex',
+    'align-items:center',
+    'justify-content:center',
+    'box-shadow:0 2px 10px rgba(0,0,0,0.45)',
+    'pointer-events:none',
+    'user-select:none',
+  ].join(';');
+  el.innerHTML = renderToStaticMarkup(
+    React.createElement(MdUTurnLeft, { size: 18, color: '#f97316' }),
+  );
+  return el;
+}
 
 export interface MapViewHandle {
   fitRoute: () => void;
@@ -51,6 +114,9 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(
     const modeRef = useRef(mode);
     const onMapClickRef = useRef(onMapClick);
     const routeCoordsRef = useRef(routeCoordinates);
+    const uturnMarkersRef = useRef<mapboxgl.Marker[]>([]);
+    const uturnsRef = useRef<UTurnPoint[]>([]);
+    const smoothBearingRef = useRef(0);
     useEffect(() => {
       modeRef.current = mode;
     }, [mode]);
@@ -279,6 +345,22 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(
       } else {
         src.setData(emptyCollection());
       }
+
+      uturnsRef.current =
+        routeCoordinates.length >= 6 ? computeUTurns(routeCoordinates) : [];
+      if (modeRef.current === 'simulate') {
+        uturnMarkersRef.current.forEach((m) => m.remove());
+        uturnMarkersRef.current = [];
+        uturnsRef.current.forEach((turn) => {
+          const marker = new mapboxgl.Marker({
+            element: createUTurnMarkerEl(),
+            anchor: 'center',
+          })
+            .setLngLat(turn.coords)
+            .addTo(mapRef.current!);
+          uturnMarkersRef.current.push(marker);
+        });
+      }
     }, [routeCoordinates]);
 
     useEffect(() => {
@@ -327,10 +409,11 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(
           });
         }
 
-        if (routeCoordinates.length >= 2) {
-          const bounds = routeCoordinates.reduce(
+        const coords = routeCoordsRef.current;
+        if (coords.length >= 2) {
+          const bounds = coords.reduce(
             (b, c) => b.extend(c),
-            new mapboxgl.LngLatBounds(routeCoordinates[0], routeCoordinates[0]),
+            new mapboxgl.LngLatBounds(coords[0], coords[0]),
           );
           map.fitBounds(bounds, {
             padding: 80,
@@ -338,10 +421,30 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(
             bearing: 0,
             duration: 1500,
           });
+
+          smoothBearingRef.current = turf.bearing(
+            turf.point(coords[0]),
+            turf.point(coords[Math.min(1, coords.length - 1)]),
+          );
         }
+
+        uturnMarkersRef.current.forEach((m) => m.remove());
+        uturnMarkersRef.current = [];
+        uturnsRef.current.forEach((turn) => {
+          const marker = new mapboxgl.Marker({
+            element: createUTurnMarkerEl(),
+            anchor: 'center',
+          })
+            .setLngLat(turn.coords)
+            .addTo(map);
+          uturnMarkersRef.current.push(marker);
+        });
       } else {
         map.setTerrain(null);
         map.easeTo({ pitch: 0, bearing: 0, duration: 800 });
+
+        uturnMarkersRef.current.forEach((m) => m.remove());
+        uturnMarkersRef.current = [];
 
         const progressSrc = map.getSource('progress') as
           | mapboxgl.GeoJSONSource
@@ -392,17 +495,21 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(
             line,
           );
           progressSrc.setData(sliced);
-        } catch {
-        }
+        } catch {}
       }
 
-      const bearing = turf.bearing(
+      const rawBearing = turf.bearing(
         turf.point(currentCoords),
         turf.point(nextCoords),
       );
+      const bearingDiff =
+        ((rawBearing - smoothBearingRef.current + 540) % 360) - 180;
+      const smoothedBearing = smoothBearingRef.current + bearingDiff * 0.35;
+      smoothBearingRef.current = smoothedBearing;
+
       map.easeTo({
         center: currentCoords,
-        bearing,
+        bearing: smoothedBearing,
         pitch: 65,
         zoom: 16.5,
         duration: 400,
