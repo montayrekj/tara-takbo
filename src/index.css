@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #f97316;
+  border: 2px solid white;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #f97316;
+  border: 2px solid white;
+  cursor: pointer;
+}
+
+.mapboxgl-popup-content {
+  background: #1e293b;
+  color: white;
+  border-radius: 8px;
+  border: 1px solid #334155;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.mapboxgl-popup-tip {
+  display: none;
+}
