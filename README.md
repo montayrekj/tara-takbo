@@ -21,7 +21,7 @@ A web app for planning and visualizing running routes. Click on the map to build
 1. Clone the repo and install dependencies:
 
    ```bash
-   git clone https://github.com/your-username/map-my-run.git
+   git clone https://github.com/your-username/tara-takbo.git
    cd tara-takbo
    npm install
    ```
