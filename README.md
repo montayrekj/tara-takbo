@@ -22,7 +22,7 @@ A web app for planning and visualizing running routes. Click on the map to build
 
    ```bash
    git clone https://github.com/your-username/map-my-run.git
-   cd map-my-run
+   cd tara-takbo
    npm install
    ```
 
